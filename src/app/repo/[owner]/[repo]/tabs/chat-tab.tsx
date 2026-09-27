@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { Loader2, SendHorizonal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { askChat } from "@/lib/api-client";
+import { loadAnalysisFromSessionStorage } from "@/lib/analysis-storage";
 import { cn } from "@/lib/utils";
 
 interface Msg {
@@ -38,7 +39,14 @@ export function ChatTab({ owner, repo, branch }: { owner: string; repo: string; 
       setMessages((prev) => [...prev, { role: "user", content: q, references: [] }, { role: "assistant", content: "", references: [] }]);
 
       try {
-        const { text, references } = await askChat(owner, repo, q, historyRef.current, branch);
+        // Chat needs repository context server-side; pass locally stored files
+        // so it works even when the server's in-memory store is cold.
+        const stored = loadAnalysisFromSessionStorage(owner, repo, branch);
+        const localFiles = (stored?.chatFiles ?? []).map((f) => ({
+          path: f.path,
+          content: f.content,
+        }));
+        const { text, references } = await askChat(owner, repo, q, historyRef.current, branch, localFiles);
         // Server streams the answer; we reveal it on completion (token-level
         // streaming is on the roadmap — see README).
         const full = await text;

@@ -53,7 +53,7 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Link href="/" className="font-mono text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">repomap</Link>
+              <Link href="/" className="font-mono text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">RepoMap</Link>
               <span className="text-[var(--text-muted)]">/</span>
               <h1 className="truncate font-mono text-lg font-semibold">
                 {m.owner}/<span className="text-accent">{m.name}</span>

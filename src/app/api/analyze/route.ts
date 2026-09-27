@@ -4,13 +4,11 @@ import { runAnalysis } from "@/lib/ai/analyze";
 import { generateAllPromptModes } from "@/lib/ai/master-prompt";
 import { saveAnalysis } from "@/lib/database/store";
 import { chunkFiles, toRepositoryChunks } from "@/lib/embeddings/chunker";
-import { embedTexts } from "@/lib/embeddings/service";
-import { getAIProvider } from "@/lib/ai/gemini";
 import { validateRepoInput } from "@/lib/security/validate";
 import { getClientKey, rateLimit } from "@/lib/security/rate-limit";
-import { toErrorResponse } from "@/lib/errors";
+import { toErrorResponse, AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import type { RepositoryChunk } from "@/types";
+import type { AnalysisPayload, RepositoryChunk } from "@/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -50,7 +48,7 @@ export async function POST(request: NextRequest) {
     return toErrorResponse(err, "analyze.validate");
   }
 
-  // SSE stream of progress steps, then final result URL.
+  // SSE stream of progress steps, then the final result URL + full analysis.
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -74,27 +72,28 @@ export async function POST(request: NextRequest) {
       try {
         send("progress", { id: "ai", label: "Generating project understanding…", status: "active" });
         const analysis = await runAnalysis(ingestion);
-
         send("progress", { id: "ai", label: "Generating project understanding…", status: "done", detail: "✓ Analysis complete" });
-        send("progress", { id: "embeddings", label: "Indexing for chat…", status: "active" });
 
-        // Chunk + embed best-effort: chat degrades gracefully without it.
-        let chunks: Array<RepositoryChunk & { embedding: number[] }> = [];
+        // Chunk best-effort: chat retrieval works from these chunks.
+        send("progress", { id: "indexing", label: "Indexing for chat…", status: "active" });
+        let chunks: RepositoryChunk[] = [];
         try {
           const rawChunks = chunkFiles(
             ingestion.ingestedFiles.map((f) => ({ path: f.path, content: f.content, language: f.language })),
-          );
-          const limited = rawChunks.slice(0, 300);
-          const embeddings = await embedTexts(getAIProvider(), limited.map((c) => c.content));
-          chunks = toRepositoryChunks(limited, "pending").map((c, i) => ({
-            ...c,
-            embedding: embeddings[i] ?? [],
-          }));
+          ).slice(0, 300);
+          chunks = toRepositoryChunks(rawChunks, "pending");
         } catch (err) {
-          logger.warn("analyze", "Embedding failed; chat will use keyword fallback", err instanceof Error ? err.message : err);
+          logger.warn("analyze", "Chunking failed; chat will use file-level retrieval", err instanceof Error ? err.message : err);
         }
 
         const prompts = generateAllPromptModes(ingestion, analysis);
+        const payload: AnalysisPayload = {
+          metadata: ingestion.metadata,
+          stats: ingestion.stats,
+          commitSha: ingestion.commitSha,
+          treeEntries: ingestion.tree.entries,
+          ...analysis,
+        };
         const saved = await saveAnalysis({
           repository: {
             owner,
@@ -111,23 +110,35 @@ export async function POST(request: NextRequest) {
             importanceScore: f.score,
           })),
           chunks,
-          payload: {
-            metadata: ingestion.metadata,
-            stats: ingestion.stats,
-            commitSha: ingestion.commitSha,
-            treeEntries: ingestion.tree.entries,
-            ...analysis,
-          },
+          payload,
           masterPrompt: prompts.detailed,
         });
 
-        // fix chunk repositoryIds post-save
+        send("progress", { id: "indexing", label: "Indexing for chat…", status: "done", detail: "✓ Indexed for chat" });
+
+        // The client stores this payload in sessionStorage before navigating,
+        // so the repository page can render without depending on server state.
         send("done", {
           url: `/repo/${owner}/${repo}?branch=${encodeURIComponent(ingestion.metadata.branch)}`,
+          repository: saved,
+          payload,
+          masterPrompt: prompts.detailed,
+          files: ingestion.ingestedFiles.map((f) => ({
+            path: f.path,
+            content: f.content,
+            importanceScore: f.score,
+          })),
         });
-        void saved;
       } catch (err) {
-        send("error", { message: err instanceof Error ? err.message : "Analysis failed" });
+        // AppError messages are already user-safe and specific (rate limit,
+        // context too large, output too long, …); everything else is generic.
+        if (err instanceof AppError) {
+          logger.error("analyze", `Analysis failed (${err.code})`, err.message);
+          send("error", { message: err.message });
+        } else {
+          logger.error("analyze", "Analysis failed", err instanceof Error ? err.message : err);
+          send("error", { message: "Analysis failed. Please try again." });
+        }
       } finally {
         controller.close();
       }

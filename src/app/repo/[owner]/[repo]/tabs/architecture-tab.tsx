@@ -63,7 +63,7 @@ export function ArchitectureTab({ payload }: { payload: AnalysisPayload }) {
                       {nodes.map((n) => (
                         <div
                           key={n.id}
-                          title={n.detail}
+                          title={n.detail ?? undefined}
                           className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-2"
                         >
                           <div className="text-sm font-medium">{n.label}</div>

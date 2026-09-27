@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, GitFork, Loader2, XCircle } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { analyzeRepository, validateRepoUrl } from "@/lib/api-client";
+import { buildChatFiles, saveAnalysisToSessionStorage } from "@/lib/analysis-storage";
 import { cn } from "@/lib/utils";
 
 interface Step {
@@ -24,7 +25,7 @@ const INITIAL_STEPS: Step[] = [
   { id: "client-detect", label: "Detecting tech stack…", status: "pending" },
   { id: "context", label: "Building repository context…", status: "pending" },
   { id: "ai", label: "Generating project understanding…", status: "pending" },
-  { id: "embeddings", label: "Indexing for chat…", status: "pending" },
+  { id: "indexing", label: "Indexing for chat…", status: "pending" },
 ];
 
 export function AnalyzeForm() {
@@ -79,8 +80,19 @@ export function AnalyzeForm() {
           setError(message);
           setRunning(false);
         },
-        onDone: (target) => {
-          router.push(target);
+        onDone: (result) => {
+          // Persist before navigating so the repository page always finds the
+          // analysis — sessionStorage survives navigation and refresh.
+          saveAnalysisToSessionStorage({
+            repository: result.repository,
+            payload: result.payload,
+            masterPrompt: result.masterPrompt,
+            ingestedPaths: result.files.map((f) => f.path),
+            chatFiles: buildChatFiles(result.files),
+            branch: result.repository.branch,
+            storedAt: new Date().toISOString(),
+          });
+          router.push(result.url);
         },
       });
     },

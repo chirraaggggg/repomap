@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { loadAnalysis } from "@/lib/database/store";
 import type { AnalysisPayload } from "@/types";
 import { AnalysisView } from "./analysis-view";
+import { SessionAnalysisLoader } from "./session-analysis-loader";
 
 export const dynamic = "force-dynamic";
 
@@ -20,21 +20,9 @@ export default async function RepoPage({ params, searchParams }: PageProps) {
   const loaded = await loadAnalysis(decodedOwner, decodedRepo, branch);
 
   if (!loaded) {
-    // Analysis exists only after an analyze run; provide a helpful empty state.
-    return (
-      <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-4 px-6 text-center">
-        <h1 className="text-2xl font-semibold">No analysis yet for {decodedOwner}/{decodedRepo}</h1>
-        <p className="text-[var(--text-secondary)]">
-          Run an analysis first — paste the repository URL on the homepage.
-        </p>
-        <Link
-          href="/"
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-strong"
-        >
-          Analyze a repository
-        </Link>
-      </main>
-    );
+    // Server store has nothing (fresh server, or cross-bundle); the client
+    // loader checks sessionStorage for the analysis saved before navigation.
+    return <SessionAnalysisLoader owner={decodedOwner} repo={decodedRepo} branch={branch} />;
   }
 
   const payload = loaded.payload as AnalysisPayload;

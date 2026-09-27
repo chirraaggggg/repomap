@@ -4,10 +4,9 @@ import { runAnalysis } from "@/lib/ai/analyze";
 import { generateAllPromptModes } from "@/lib/ai/master-prompt";
 import { saveAnalysis } from "@/lib/database/store";
 import { chunkFiles, toRepositoryChunks } from "@/lib/embeddings/chunker";
-import { embedTexts } from "@/lib/embeddings/service";
-import { getAIProvider } from "@/lib/ai/gemini";
 import { getClientKey, rateLimit } from "@/lib/security/rate-limit";
 import { toErrorResponse } from "@/lib/errors";
+import type { RepositoryChunk } from "@/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -30,15 +29,14 @@ export async function POST(
     const analysis = await runAnalysis(ingestion);
     const prompts = generateAllPromptModes(ingestion, analysis);
 
-    let chunks: Array<Parameters<typeof saveAnalysis>[0]["chunks"][number]> = [];
+    let chunks: RepositoryChunk[] = [];
     try {
       const raw = chunkFiles(
         ingestion.ingestedFiles.map((f) => ({ path: f.path, content: f.content, language: f.language })),
       ).slice(0, 300);
-      const embeddings = await embedTexts(getAIProvider(), raw.map((c) => c.content));
-      chunks = toRepositoryChunks(raw, "pending").map((c, i) => ({ ...c, embedding: embeddings[i] ?? [] }));
+      chunks = toRepositoryChunks(raw, "pending");
     } catch {
-      // embeddings best-effort
+      // chunking best-effort; chat falls back to file-level retrieval
     }
 
     const saved = await saveAnalysis({

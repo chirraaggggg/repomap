@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getAIProvider } from "@/lib/ai/gemini";
+import { getAIProvider } from "@/lib/ai/provider";
 import { loadAnalysis } from "@/lib/database/store";
 import { getFileContent } from "@/lib/github/client";
 import { toErrorResponse, AppError } from "@/lib/errors";
@@ -56,7 +56,7 @@ export async function POST(
         ? `Explain what this file does, its role in the repository, key functions/components, and how other code likely uses it. Be concise and technical.\n\nFile path: ${body.path}\n\n\`\`\`\n${trimmed}\n\`\`\``
         : `List the exported symbols, classes, or functions defined in this file and where they are most likely referenced from, based on imports and naming. Format as a bullet list.\n\nFile path: ${body.path}\n\n\`\`\`\n${trimmed}\n\`\`\``;
 
-    const text = await provider.generateText(prompt, { system: EXPLAIN_SYSTEM, temperature: 0.2 });
+    const text = await provider.generateText(prompt, { system: EXPLAIN_SYSTEM, temperature: 0.2, maxOutputTokens: 1_500, reasoningEffort: "low" });
     return Response.json({ explanation: text, tokens: estimateTokens(trimmed) });
   } catch (err) {
     return toErrorResponse(err, "api.repository.explain");

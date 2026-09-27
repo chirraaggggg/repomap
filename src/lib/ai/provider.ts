@@ -1,20 +1,12 @@
 /**
  * AI provider abstraction. Implement this interface to add a provider.
+ * Re-exports the concrete contracts so callers can import from one module.
  */
-export interface GenerateTextOptions {
-  system?: string;
-  temperature?: number;
-  maxOutputTokens?: number;
-  json?: boolean;
-}
+export type { AIProvider, GenerateTextOptions, ModelKind } from "./types";
 
-export interface AIProvider {
-  readonly name: string;
-  generateText(prompt: string, options?: GenerateTextOptions): Promise<string>;
-  generateStructured<T>(prompt: string, schemaName: string, options?: GenerateTextOptions): Promise<T>;
-  generateEmbedding(text: string): Promise<number[]>;
-  streamText(
-    prompt: string,
-    options?: GenerateTextOptions,
-  ): AsyncIterable<string>;
+import { getAIProvider as getGroqProvider } from "./groq";
+import type { AIProvider } from "./types";
+
+export function getAIProvider(): AIProvider {
+  return getGroqProvider();
 }

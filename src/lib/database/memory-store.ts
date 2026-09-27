@@ -1,6 +1,6 @@
 /**
- * Process-level in-memory store used when Supabase env vars are absent.
- * Data survives per server instance; documented as a development fallback.
+ * Process-level in-memory store. RepoMap MVP runs without a database:
+ * data survives per server instance; documented as ephemeral.
  */
 import type {
   AnalysisRecord,
@@ -20,12 +20,21 @@ interface MemoryEntry {
     content: string;
     importanceScore: number;
   }>;
-  chunks: Array<RepositoryChunk & { embedding: number[] }>;
+  chunks: RepositoryChunk[];
   analysis: AnalysisRecord | null;
   messages: ChatMessage[];
 }
 
-const store = new Map<string, MemoryEntry>();
+/**
+ * Singleton across bundles. Next.js can evaluate this module once per
+ * bundle (route handlers vs RSC), so the map lives on globalThis to keep
+ * one shared instance per server process.
+ */
+const globalStore = globalThis as typeof globalThis & {
+  __repomapStore?: Map<string, MemoryEntry>;
+};
+const store: Map<string, MemoryEntry> = globalStore.__repomapStore ?? new Map();
+globalStore.__repomapStore = store;
 
 function repoKey(owner: string, name: string, branch: string): string {
   return `${owner.toLowerCase()}/${name.toLowerCase()}@${branch}`;
@@ -68,13 +77,6 @@ export function memoryGetRepository(owner: string, name: string, branch?: string
   return latest;
 }
 
-export function memoryGetRepositoryById(id: string): RepositoryRecord | null {
-  for (const entry of store.values()) {
-    if (entry.repository.id === id) return entry.repository;
-  }
-  return null;
-}
-
 export function memorySaveFiles(
   repositoryId: string,
   files: Array<{
@@ -105,13 +107,13 @@ export function memoryGetFiles(repositoryId: string): MemoryEntry["files"] {
   return entry?.files ?? [];
 }
 
-export function memorySaveChunks(repositoryId: string, chunks: Array<RepositoryChunk & { embedding: number[] }>): void {
+export function memorySaveChunks(repositoryId: string, chunks: RepositoryChunk[]): void {
   const entry = findEntryByRepositoryId(repositoryId);
   if (!entry) return;
   entry.chunks = chunks;
 }
 
-export function memoryGetChunks(repositoryId: string): Array<RepositoryChunk & { embedding: number[] }> {
+export function memoryGetChunks(repositoryId: string): RepositoryChunk[] {
   return findEntryByRepositoryId(repositoryId)?.chunks ?? [];
 }
 

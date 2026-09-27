@@ -1,6 +1,8 @@
 /**
  * Typed client-side API helpers.
  */
+import type { AnalysisPayload, RepositoryRecord } from "@/types";
+
 export interface ApiErrorBody {
   error?: { code?: string; message?: string };
 }
@@ -26,10 +28,19 @@ export async function validateRepoUrl(url: string): Promise<{ owner: string; rep
   return res.json();
 }
 
+/** Full analysis result delivered with the final SSE `done` event. */
+export interface AnalyzeResult {
+  url: string;
+  repository: RepositoryRecord;
+  payload: AnalysisPayload;
+  masterPrompt: string;
+  files: Array<{ path: string; content: string; importanceScore: number }>;
+}
+
 export interface AnalyzeHandlers {
   onProgress: (step: { id: string; label: string; status: string; detail?: string }) => void;
   onError: (message: string) => void;
-  onDone: (url: string) => void;
+  onDone: (result: AnalyzeResult) => void;
 }
 
 /** Consumes the SSE stream from /api/analyze. */
@@ -61,7 +72,7 @@ export function analyzeRepository(url: string, handlers: AnalyzeHandlers): Abort
           const event = lines.find((l) => l.startsWith("event: "))?.slice(7).trim();
           const dataLine = lines.find((l) => l.startsWith("data: "))?.slice(6);
           if (!event || !dataLine) continue;
-          const data = JSON.parse(dataLine) as { message?: string; url?: string; id?: string; label?: string; status?: string; detail?: string };
+          const data = JSON.parse(dataLine) as { message?: string; url?: string; repository?: RepositoryRecord; payload?: AnalysisPayload; masterPrompt?: string; files?: Array<{ path: string; content: string; importanceScore: number }>; id?: string; label?: string; status?: string; detail?: string };
           if (event === "progress") {
             handlers.onProgress({
               id: data.id ?? "",
@@ -72,7 +83,26 @@ export function analyzeRepository(url: string, handlers: AnalyzeHandlers): Abort
           } else if (event === "error") {
             handlers.onError(data.message ?? "Analysis failed");
           } else if (event === "done") {
-            handlers.onDone(data.url ?? "/");
+            // Never navigate without the analysis payload: the destination
+            // page would render its "No analysis yet" state.
+            if (!data.repository || !data.payload || !data.url) {
+              handlers.onError("Analysis finished but the result payload was missing. Please try again.");
+              return;
+            }
+            console.log("[RepoMap] analysis response received", {
+              hasPayload: true,
+              owner: data.repository.owner,
+              repo: data.repository.name,
+              branch: data.repository.branch,
+              files: data.files?.length ?? 0,
+            });
+            handlers.onDone({
+              url: data.url,
+              repository: data.repository,
+              payload: data.payload,
+              masterPrompt: data.masterPrompt ?? "",
+              files: data.files ?? [],
+            });
           }
         }
       }
@@ -119,11 +149,12 @@ export async function askChat(
   question: string,
   history: Array<{ role: "user" | "assistant"; content: string }>,
   branch?: string,
+  localFiles: Array<{ path: string; content: string }> = [],
 ): Promise<{ text: Promise<string>; references: () => string[] }> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ owner, repo, question, history, branch }),
+    body: JSON.stringify({ owner, repo, question, history, branch, localFiles }),
   });
   if (!res.ok || !res.body) await parseError(res);
 

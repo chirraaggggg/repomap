@@ -27,15 +27,17 @@ export const AnalysisResultSchema = z.object({
         z.object({
           id: z.string(),
           label: z.string(),
-          layer: z.enum(["client", "frontend", "backend", "data", "external"]),
-          detail: z.string().optional(),
+          layer: z
+            .enum(["client", "frontend", "backend", "data", "external"])
+            .catch("backend"),
+          // Strict JSON schema models optionality as nullable; accept both.
+          detail: z.string().nullable().optional(),
         }),
       ),
       edges: z.array(
-        z.object({
-          from: z.string(),
-          to: z.string(),
-          label: z.string().optional(),
+        z.object({              from: z.string(),
+              to: z.string(),
+              label: z.string().nullable().optional(),
         }),
       ),
     })
@@ -50,7 +52,7 @@ export const AnalysisResultSchema = z.object({
         path: z.string(),
         role: z.string().default(""),
         why: z.string().default(""),
-        importance: z.number().default(50),
+        importance: z.coerce.number().default(50),
       }),
     )
     .default([]),
@@ -75,7 +77,7 @@ export const AnalysisResultSchema = z.object({
       z.object({
         name: z.string(),
         version: z.string().default(""),
-        type: z.enum(["runtime", "development"]).default("runtime"),
+        type: z.enum(["runtime", "development"]).catch("runtime"),
       }),
     )
     .default([]),
@@ -84,7 +86,7 @@ export const AnalysisResultSchema = z.object({
   learningPath: z
     .array(
       z.object({
-        level: z.number(),
+        level: z.coerce.number(),
         title: z.string(),
         goal: z.string().default(""),
         files: z.array(z.string()).default([]),

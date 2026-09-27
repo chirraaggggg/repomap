@@ -128,13 +128,14 @@ export interface DiagramNode {
   id: string;
   label: string;
   layer: "client" | "frontend" | "backend" | "data" | "external";
-  detail?: string;
+  /** Strict JSON schema models optionality as nullable. */
+  detail?: string | null;
 }
 
 export interface DiagramEdge {
   from: string;
   to: string;
-  label?: string;
+  label?: string | null;
 }
 
 export interface DirectoryItem {

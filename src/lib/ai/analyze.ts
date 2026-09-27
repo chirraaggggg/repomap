@@ -1,16 +1,19 @@
 /**
  * Executes AI analysis over the ingested repository context.
+ * Uses Groq strict structured output (json_schema), then validates.
  */
 import { AnalysisResultSchema, type AnalysisResultSchema as AnalysisResult } from "./analysis-schema";
+import { ANALYSIS_JSON_SCHEMA } from "./analysis-json-schema";
 import { ANALYSIS_SYSTEM_PROMPT, buildAnalysisPrompt } from "./analysis-prompt";
-import { parseJsonLoose } from "./gemini";
+import { parseJsonLoose } from "./groq";
+import { getAIProvider } from "./provider";
 import { AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import type { IngestionResult } from "@/types";
 import { z } from "zod";
 
 export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisResult> {
-  const provider = getProvider();
+  const provider = getAIProvider();
   const prompt = buildAnalysisPrompt({
     metadata: ingestion.metadata,
     stats: ingestion.stats,
@@ -18,12 +21,20 @@ export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisR
     context: ingestion.context,
   });
 
-  logger.info("ai.analyze", `Analyzing ${ingestion.metadata.fullName} (${ingestion.contextTokens} tokens)`);
+  logger.info(
+    "ai.analyze",
+    `Analyzing ${ingestion.metadata.fullName}: selectedFiles=${ingestion.ingestedFiles.length} contextTokens=${ingestion.contextTokens} completionRequest=6000 effort=low`,
+  );
 
+  // Strict structured output: the model must emit JSON matching the schema.
+  // Completion budget is re-capped inside the provider so that input + output
+  // always fits the free-tier per-request envelope.
   const raw = await provider.generateText(prompt, {
     system: ANALYSIS_SYSTEM_PROMPT,
     temperature: 0.2,
-    json: true,
+    maxOutputTokens: 6_000,
+    reasoningEffort: "low",
+    jsonSchema: { name: "repository_analysis", schema: ANALYSIS_JSON_SCHEMA },
   });
 
   let parsed: unknown;
@@ -34,28 +45,58 @@ export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisR
     throw new AppError("AI_ERROR", "AI analysis returned malformed JSON. Please retry.");
   }
 
+  const parsedKeys = typeof parsed === "object" && parsed !== null ? Object.keys(parsed).length : 0;
+  logger.info("ai.analyze", `Parsed response: top-levelKeys=${parsedKeys}`);
+
   // Filter importantFiles to paths that actually exist in the repository.
   const realPaths = new Set(ingestion.tree.entries.map((e) => e.path));
   const prevalidated = sanitizeAnalysis(parsed, realPaths);
-  const result = AnalysisResultSchema.parse(prevalidated);
-  return result;
-}
 
-function getProvider() {
-  // Lazy import to keep bundle graph clean in edge tests.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getAIProvider } = require("./gemini") as typeof import("./gemini");
-  return getAIProvider();
+  const validated = AnalysisResultSchema.safeParse(prevalidated);
+  if (!validated.success) {
+    const summary = validated.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    logger.error("ai.analyze", `Schema validation failed with ${validated.error.issues.length} issue(s): ${summary}`);
+    throw new AppError("AI_ERROR", "AI analysis returned an unexpected structure. Please try again.");
+  }
+  logger.info("ai.analyze", "Schema validation OK");
+  return validated.data;
 }
 
 const FileRefSchema = z.object({ path: z.string() });
 
 /**
- * Drops hallucinated file references and trims prompt-injection-looking noise.
+ * Deterministic array bounds — enforced post-parse regardless of what the
+ * model emits, keeping every response within the output budget.
+ */
+const ARRAY_LIMITS: Record<string, number> = {
+  techStack: 10,
+  importantFiles: 15,
+  keyFlows: 8,
+  dependencies: 15,
+  risks: 8,
+  learningPath: 8,
+  suggestedLearningPath: 8,
+  directoryExplanation: 10,
+  environmentVariables: 10,
+};
+
+/**
+ * Drops hallucinated file references, trims prompt-injection-looking noise,
+ * and bounds array sizes.
  */
 export function sanitizeAnalysis(data: unknown, realPaths: Set<string>): unknown {
   if (typeof data !== "object" || data === null) return data;
   const obj = data as Record<string, unknown>;
+
+  for (const [field, limit] of Object.entries(ARRAY_LIMITS)) {
+    const value = obj[field];
+    if (Array.isArray(value) && value.length > limit) {
+      obj[field] = value.slice(0, limit);
+    }
+  }
 
   if (Array.isArray(obj.importantFiles)) {
     obj.importantFiles = obj.importantFiles.filter((f) => {

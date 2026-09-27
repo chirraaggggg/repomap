@@ -2,8 +2,11 @@
  * Token estimation. Char-heuristic based (~3.6 chars/token for code),
  * avoids a tokenizer dependency while staying within ~15% of real counts.
  */
-export const MAX_ANALYSIS_TOKENS = 30_000;
-export const MAX_CHAT_CONTEXT_TOKENS = 12_000;
+// Budgets are sized for Groq's free tier: ~8,000 tokens per request counting
+// prompt AND completion together. Context + prompt scaffolding + completion
+// must fit that envelope (see MAX_TOTAL_TOKENS_PER_REQUEST in ai/groq.ts).
+export const MAX_ANALYSIS_TOKENS = 3_000;
+export const MAX_CHAT_CONTEXT_TOKENS = 2_500;
 export const MAX_MASTER_PROMPT_TOKENS = 20_000;
 
 const CHARS_PER_TOKEN = 3.6;

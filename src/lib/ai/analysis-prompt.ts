@@ -6,6 +6,13 @@ import type { RepositoryMetadata, RepoStats, TechStackItem } from "@/types";
 
 export const ANALYSIS_SYSTEM_PROMPT = `You are analyzing an actual GitHub repository. Only make claims supported by the provided repository context. If something cannot be determined, explicitly say so.
 
+Brevity rules:
+- Be concise. Return only the required JSON. Keep every string short (1-2 sentences max).
+- Do not repeat information across fields.
+- Limit arrays to the most important items: techStack max 10, importantFiles max 15, keyFlows max 8, dependencies max 15, risks max 8, learningPath max 8 levels, suggestedLearningPath max 8 steps, directoryExplanation max 10, environmentVariables max 10.
+- Do not provide exhaustive file listings. Prioritize actionable information over explanation.
+- If the repository has no database, authentication, or API, use exactly "not found in repository".
+
 Rules:
 1. Reference real file paths exactly as they appear in the context.
 2. Never invent functionality, endpoints, tables, or integrations.

@@ -25,13 +25,10 @@ export default function HomePage() {
       <header className="flex items-center justify-between py-6">
         <Link href="/" className="flex items-center gap-2 font-mono text-sm font-semibold">
           <span className="flex h-6 w-6 items-center justify-center rounded bg-accent text-xs font-bold text-white">R</span>
-          repomap
+          RepoMap
         </Link>
         <nav aria-label="Main" className="flex items-center gap-3">
           <ThemeToggle />
-          <Link href="/login" className="text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">
-            Sign in
-          </Link>
         </nav>
       </header>
 
@@ -75,7 +72,7 @@ export default function HomePage() {
       </section>
 
       <footer className="flex items-center justify-between border-t border-[var(--border)] py-6 text-xs text-[var(--text-muted)]">
-        <span>repomap — analyze any public GitHub repository</span>
+        <span>RepoMap — analyze any public GitHub repository</span>
         <span className="font-mono">paste → analyze → understand</span>
       </footer>
     </main>

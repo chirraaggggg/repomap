@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getAIProvider } from "@/lib/ai/gemini";
-import { embedQuery } from "@/lib/embeddings/service";
-import { retrieveChunks, formatRetrievedContext, type RetrievableChunk } from "@/lib/embeddings/retrieval";
-import { getChunksWithEmbeddings, loadAnalysis, saveChatMessages } from "@/lib/database/store";
+import { getAIProvider } from "@/lib/ai/provider";
+import { formatRetrievedContext } from "@/lib/embeddings/retrieval";
+import type { RetrievalHit } from "@/lib/embeddings/retrieval";
+import { getRepositoryChunks, loadAnalysis, saveChatMessages } from "@/lib/database/store";
 import { toErrorResponse, AppError } from "@/lib/errors";
 import { getClientKey, rateLimit } from "@/lib/security/rate-limit";
 import { logger } from "@/lib/logger";
@@ -23,6 +23,16 @@ const BodySchema = z.object({
   history: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8_000) }))
     .max(12)
+    .default([]),
+  /** Client-supplied files (sessionStorage fallback) used only when the server store is cold. */
+  localFiles: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(500),
+        content: z.string().max(200_000),
+      }),
+    )
+    .max(60)
     .default([]),
 });
 
@@ -56,48 +66,30 @@ export async function POST(request: NextRequest) {
     const repositoryId = loaded.repository.id;
     const provider = getAIProvider();
 
-    // Retrieval: vector search when embeddings exist, keyword fallback otherwise.
-    let context: string;
-    let referencedPaths: string[] = [];
-    const stored = await getChunksWithEmbeddings(repositoryId);
+    // Keyword retrieval over stored chunks (chunk-level when available,
+    // file-level otherwise) — no embeddings needed.
+    const stored = await getRepositoryChunks(repositoryId);
+    let hits: RetrievalHit[];
 
     if (stored.length > 0) {
-      try {
-        const queryEmbedding = await embedQuery(provider, body.question);
-        const retrievable: RetrievableChunk[] = stored.map((c) => ({
-          id: c.id,
-          path: c.path,
-          content: c.content,
-          startLine: c.startLine,
-          endLine: c.endLine,
-          embedding: c.embedding,
-        }));
-        const hits = retrieveChunks(body.question, queryEmbedding, retrievable);
-        context = formatRetrievedContext(hits);
-        referencedPaths = [...new Set(hits.map((h) => h.chunk.path))].slice(0, 8);
-      } catch (err) {
-        logger.warn("chat", "Vector retrieval failed, using keyword fallback", err instanceof Error ? err.message : err);
-        const hits = retrieveChunksKeyword(body.question, stored);
-        context = formatRetrievedContext(hits);
-        referencedPaths = [...new Set(hits.map((h) => h.chunk.path))].slice(0, 8);
-      }
+      hits = retrieveChunksKeyword(body.question, stored);
     } else {
-      // Keyword fallback over stored files.
-      const hits = retrieveFilesKeyword(body.question, loaded.files);
-      context = formatRetrievedContext(
-        hits.map((f) => ({
-          chunk: {
-            id: f.path,
-            path: f.path,
-            content: f.content,
-            startLine: 1,
-            endLine: f.content.split("\n").length,
-          },
-          score: 0,
-        })),
-      );
-      referencedPaths = hits.map((f) => f.path).slice(0, 8);
+      // Prefer server-side files; fall back to client-provided sessionStorage
+      // files when the server store is cold (no-database MVP).
+      const fallbackFiles = loaded.files.length > 0 ? loaded.files : body.localFiles;
+      hits = retrieveFilesKeyword(body.question, fallbackFiles).map((f) => ({
+        chunk: {
+          id: f.path,
+          path: f.path,
+          content: f.content,
+          startLine: 1,
+          endLine: f.content.split("\n").length,
+        },
+        score: 0,
+      }));
     }
+    const context = formatRetrievedContext(hits);
+    const referencedPaths = [...new Set(hits.map((h) => h.chunk.path))].slice(0, 8);
 
     const historyText = body.history
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
@@ -132,7 +124,7 @@ Answer the question using only the repository context above. Cite file paths.`;
         const encoder = new TextEncoder();
         let full = "";
         try {
-          for await (const delta of provider.streamText(prompt, { system: CHAT_SYSTEM, temperature: 0.2 })) {
+          for await (const delta of provider.streamText(prompt, { system: CHAT_SYSTEM, temperature: 0.2, model: "fast", maxOutputTokens: 2_000, reasoningEffort: "low" })) {
             full += delta;
             controller.enqueue(encoder.encode(delta));
           }
@@ -168,33 +160,41 @@ Answer the question using only the repository context above. Cite file paths.`;
   }
 }
 
+function tokenizeQuestion(question: string): string[] {
+  return question.toLowerCase().split(/[^a-z0-9_.]+/).filter((t) => t.length > 2);
+}
+
+function scoreText(terms: string[], text: string): number {
+  const haystack = text.toLowerCase();
+  return terms.reduce((acc, t) => acc + (haystack.includes(t) ? 1 : 0), 0);
+}
+
 function retrieveChunksKeyword(
   question: string,
   chunks: Array<{ id: string; path: string; content: string; startLine: number; endLine: number }>,
-) {
-  const terms = question.toLowerCase().split(/[^a-z0-9_.]+/).filter((t) => t.length > 2);
-  const scored = chunks.map((c) => {
-    const haystack = `${c.path} ${c.content}`.toLowerCase();
-    const score = terms.reduce((acc, t) => acc + (haystack.includes(t) ? 1 : 0), 0);
-    return { chunk: c, score };
-  });
-  return scored
+): RetrievalHit[] {
+  const terms = tokenizeQuestion(question);
+  return chunks
+    .map((c) => ({ chunk: c, score: scoreText(terms, `${c.path} ${c.content}`) }))
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 12)
-    .map((s) => ({ chunk: s.chunk, score: s.score }));
+    .slice(0, 12);
 }
 
-function retrieveFilesKeyword(question: string, files: Array<{ path: string; content: string }>, maxContextChars = 40_000) {
-  const terms = question.toLowerCase().split(/[^a-z0-9_.]+/).filter((t) => t.length > 2);
-  const scored = files.map((f) => {
-    const haystack = `${f.path} ${f.content}`.toLowerCase();
-    const score = terms.reduce((acc, t) => acc + (haystack.includes(t) ? 1 : 0), 0);
-    return { f, score };
-  });
+function retrieveFilesKeyword(
+  question: string,
+  files: Array<{ path: string; content: string }>,
+  maxContextChars = 40_000,
+): Array<{ path: string; content: string }> {
+  const terms = tokenizeQuestion(question);
+  const scored = files
+    .map((f) => ({ f, score: scoreText(terms, `${f.path} ${f.content}`) }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score);
+
   const picked: Array<{ path: string; content: string }> = [];
   let used = 0;
-  for (const s of scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score)) {
+  for (const s of scored) {
     if (used + s.f.content.length > maxContextChars) continue;
     used += s.f.content.length;
     picked.push(s.f);

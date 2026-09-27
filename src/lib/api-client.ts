@@ -1,7 +1,7 @@
 /**
  * Typed client-side API helpers.
  */
-import type { AnalysisPayload, RepositoryRecord } from "@/types";
+import type { AnalysisPayload, ChatReference, RepositoryRecord } from "@/types";
 
 export interface ApiErrorBody {
   error?: { code?: string; message?: string };
@@ -143,6 +143,23 @@ export async function explainFile(
   return res.json();
 }
 
+/**
+ * Normalizes legacy/stored references (plain strings) into the canonical
+ * ChatReference shape. Called once at the API boundary only.
+ */
+function normalizeChatReferences(raw: unknown): ChatReference[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((reference) => {
+      if (typeof reference === "string") return { path: reference };
+      if (typeof reference === "object" && reference !== null && typeof (reference as { path?: unknown }).path === "string") {
+        return { path: (reference as { path: string }).path };
+      }
+      return null;
+    })
+    .filter((r): r is ChatReference => r !== null);
+}
+
 export async function askChat(
   owner: string,
   repo: string,
@@ -150,7 +167,7 @@ export async function askChat(
   history: Array<{ role: "user" | "assistant"; content: string }>,
   branch?: string,
   localFiles: Array<{ path: string; content: string }> = [],
-): Promise<{ text: Promise<string>; references: () => string[] }> {
+): Promise<{ text: Promise<string>; references: () => ChatReference[] }> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -159,9 +176,9 @@ export async function askChat(
   if (!res.ok || !res.body) await parseError(res);
 
   const refsHeader = res.headers.get("X-File-References");
-  let references: string[] = [];
+  let references: ChatReference[] = [];
   try {
-    references = refsHeader ? (JSON.parse(refsHeader) as string[]) : [];
+    references = refsHeader ? normalizeChatReferences(JSON.parse(refsHeader)) : [];
   } catch {
     references = [];
   }

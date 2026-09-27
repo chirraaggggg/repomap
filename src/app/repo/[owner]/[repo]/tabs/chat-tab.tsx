@@ -5,12 +5,13 @@ import { Loader2, SendHorizonal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { askChat } from "@/lib/api-client";
 import { loadAnalysisFromSessionStorage } from "@/lib/analysis-storage";
+import type { ChatReference } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
-  references: string[];
+  references: ChatReference[];
 }
 
 const SUGGESTED = [
@@ -23,7 +24,17 @@ const SUGGESTED = [
   "How would I add a new feature?",
 ];
 
-export function ChatTab({ owner, repo, branch }: { owner: string; repo: string; branch: string }) {
+export function ChatTab({
+  owner,
+  repo,
+  branch,
+  onOpenFile,
+}: {
+  owner: string;
+  repo: string;
+  branch: string;
+  onOpenFile?: (path: string) => void;
+}) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -36,7 +47,7 @@ export function ChatTab({ owner, repo, branch }: { owner: string; repo: string; 
       setInput("");
       setStreaming(true);
 
-      setMessages((prev) => [...prev, { role: "user", content: q, references: [] }, { role: "assistant", content: "", references: [] }]);
+      setMessages((prev) => [...prev, { role: "user", content: q, references: [] as ChatReference[] }, { role: "assistant", content: "", references: [] as ChatReference[] }]);
 
       try {
         // Chat needs repository context server-side; pass locally stored files
@@ -107,10 +118,17 @@ export function ChatTab({ owner, repo, branch }: { owner: string; repo: string; 
                 <p className="whitespace-pre-wrap">{m.content}</p>
                 {m.references.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1.5 border-t border-[var(--border)] pt-2">
-                    {m.references.map((r) => (
-                      <code key={r} className="rounded bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-accent">
-                        {r}
-                      </code>
+                    {m.references.map((reference, index) => (
+                      <button
+                        key={`${reference.path}-${index}`}
+                        type="button"
+                        onClick={onOpenFile ? () => onOpenFile(reference.path) : undefined}
+                        disabled={!onOpenFile}
+                        title={onOpenFile ? `Open ${reference.path} in Files` : reference.path}
+                        className="rounded bg-[var(--bg)] px-1.5 py-0.5 font-mono text-[11px] text-accent hover:underline disabled:cursor-default"
+                      >
+                        {reference.path}
+                      </button>
                     ))}
                   </div>
                 ) : null}

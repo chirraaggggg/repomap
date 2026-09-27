@@ -15,6 +15,8 @@ interface Props {
   branch: string;
   payload: AnalysisPayload;
   ingestedPaths: string[];
+  /** Pre-select a file (e.g. from a chat reference or Learn step click). */
+  initialSelectedPath?: string | null;
 }
 
 interface FilePayload {
@@ -152,22 +154,26 @@ function FileViewer({ owner, repo, branch, path }: { owner: string; repo: string
   return <CodeBlock code={state.data.content} language={state.data.language} />;
 }
 
-export function FilesTab({ owner, repo, branch, payload, ingestedPaths }: Props) {
+export function FilesTab({ owner, repo, branch, payload, ingestedPaths, initialSelectedPath }: Props) {
   const entries = useMemo<TreeEntry[]>(() => payload.treeEntries ?? [], [payload.treeEntries]);
   const tree = useMemo(() => buildTree(entries), [entries]);
 
+  // A requested file (chat reference / Learn step) takes priority; otherwise
+  // fall back to the first important file.
+  const defaultSelection = initialSelectedPath ?? payload.importantFiles[0]?.path ?? null;
+
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = new Set<string>();
-    const important = payload.importantFiles[0]?.path;
-    if (important) {
-      const parts = important.split("/");
+    const anchor = defaultSelection ?? payload.importantFiles[0]?.path;
+    if (anchor) {
+      const parts = anchor.split("/");
       for (let i = 1; i < parts.length; i++) initial.add(parts.slice(0, i).join("/"));
     }
     if (initial.size === 0) initial.add("src");
     return initial;
   });
 
-  const [selected, setSelected] = useState<string | null>(payload.importantFiles[0]?.path ?? null);
+  const [selected, setSelected] = useState<string | null>(defaultSelection);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [explaining, setExplaining] = useState(false);
 

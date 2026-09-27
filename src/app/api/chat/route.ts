@@ -7,6 +7,7 @@ import { getRepositoryChunks, loadAnalysis, saveChatMessages } from "@/lib/datab
 import { toErrorResponse, AppError } from "@/lib/errors";
 import { getClientKey, rateLimit } from "@/lib/security/rate-limit";
 import { logger } from "@/lib/logger";
+import { MAX_CHAT_CONTEXT_TOKENS, estimateTokens } from "@/lib/ingestion/tokenizer";
 import type { FileReference } from "@/types";
 
 export const runtime = "nodejs";
@@ -169,22 +170,47 @@ function scoreText(terms: string[], text: string): number {
   return terms.reduce((acc, t) => acc + (haystack.includes(t) ? 1 : 0), 0);
 }
 
+/** Directories whose chunks are rarely useful as chat context. */
+const NOISE_PATHS = [".github/", ".vscode/", ".idea/", "assets/", "docs/assets/"];
+
 function retrieveChunksKeyword(
   question: string,
   chunks: Array<{ id: string; path: string; content: string; startLine: number; endLine: number }>,
 ): RetrievalHit[] {
   const terms = tokenizeQuestion(question);
-  return chunks
-    .map((c) => ({ chunk: c, score: scoreText(terms, `${c.path} ${c.content}`) }))
+  const scored = chunks
+    .map((c) => {
+      // Path matches are strong signals; body matches are weak ones.
+      const pathHits = scoreText(terms, c.path);
+      const bodyHits = scoreText(terms, c.content);
+      return { chunk: c, score: pathHits * 3 + bodyHits };
+    })
     .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 12);
+    .filter((s) => !NOISE_PATHS.some((p) => s.chunk.path.startsWith(p)))
+    .sort((a, b) => b.score - a.score);
+
+  // Token-budgeted selection: chat must fit the free-tier envelope together
+  // with the prompt and the completion budget.
+  const selected: RetrievalHit[] = [];
+  let used = 0;
+  const perFile = new Map<string, number>();
+  for (const s of scored) {
+    const count = perFile.get(s.chunk.path) ?? 0;
+    if (count >= 3) continue; // breadth: don't drown in one file
+    const tokens = estimateTokens(s.chunk.content);
+    if (used + tokens > MAX_CHAT_CONTEXT_TOKENS) continue;
+    used += tokens;
+    perFile.set(s.chunk.path, count + 1);
+    selected.push(s);
+    if (selected.length >= 12) break;
+  }
+  return selected;
 }
 
 function retrieveFilesKeyword(
   question: string,
   files: Array<{ path: string; content: string }>,
-  maxContextChars = 40_000,
+  maxContextChars = 9_000,
 ): Array<{ path: string; content: string }> {
   const terms = tokenizeQuestion(question);
   const scored = files

@@ -169,7 +169,7 @@ async function requestGroq(body: RequestBody, signal: AbortSignal): Promise<Resp
     if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
       throw new AppError("TIMEOUT", "The AI request timed out. Please try again.");
     }
-    throw new AppError("AI_ERROR", "Could not reach the AI service. Please try again.");
+    throw new AppError("AI_PROVIDER_ERROR", "The AI service is temporarily unavailable. Please try again.");
   }
 
   if (res.status === 429) {
@@ -213,7 +213,7 @@ async function requestGroq(body: RequestBody, signal: AbortSignal): Promise<Resp
     }
     // Status + safe detail only; never request/response bodies (may contain repo content).
     logger.error("ai.groq", `HTTP ${res.status} ${detail}`.trim());
-    throw new AppError("AI_ERROR", "The AI service returned an error. Please try again.");
+    throw new AppError("AI_PROVIDER_ERROR", "The AI service is temporarily unavailable. Please try again.");
   }
   return res;
 }
@@ -229,11 +229,11 @@ function extractContent(data: ChatCompletionResponse, model: string): string {
 
   if (typeof content !== "string" || content.length === 0) {
     logger.error("ai.groq", `Empty content: model=${model} finish_reason=${finishReason} hasChoices=${Array.isArray(data.choices)}`);
-    throw new AppError("AI_ERROR", "The AI returned an empty response.");
+    throw new AppError("AI_INVALID_RESPONSE", "The AI returned an unreadable response. Please try again.");
   }
   if (finishReason === "length") {
     logger.error("ai.groq", `Truncated output: model=${model} finish_reason=length contentChars=${content.length}`);
-    throw new AppError("AI_OUTPUT_TOO_LONG", "AI analysis exceeded the output budget. Try again.");
+    throw new AppError("AI_OUTPUT_TOO_LONG", "The AI response was too long for the output budget. Please try again.");
   }
   logger.info("ai.groq", `OK model=${model} finish_reason=${finishReason} contentChars=${content.length}`);
   return content;
@@ -265,7 +265,7 @@ export class GroqProvider implements AIProvider {
         data = (await res.json()) as ChatCompletionResponse;
       } catch {
         logger.error("ai.groq", `Non-JSON response body: model=${body.model} status=${res.status}`);
-        throw new AppError("AI_ERROR", "The AI service returned an unreadable response. Please try again.");
+        throw new AppError("AI_INVALID_RESPONSE", "The AI returned an unreadable response. Please try again.");
       }
       return extractContent(data, body.model);
     } finally {
@@ -286,7 +286,7 @@ export class GroqProvider implements AIProvider {
       const res = await requestGroq(body, controller.signal);
       if (!res.body) {
         logger.error("ai.groq", `Stream had no body: model=${body.model}`);
-        throw new AppError("AI_ERROR", "The AI returned an empty response.");
+        throw new AppError("AI_INVALID_RESPONSE", "The AI returned an unreadable response. Please try again.");
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

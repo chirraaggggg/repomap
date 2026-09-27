@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Download, ExternalLink, GitBranch, Loader2, RefreshCw, Star } from "lucide-react";
@@ -31,6 +31,13 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  // Monotonic counter so each request remounts FilesTab with the requested file.
+  const [fileRequest, setFileRequest] = useState<{ path: string; nonce: number } | null>(null);
+  const openFileInFilesTab = useCallback((path: string) => {
+    setFileRequest((prev) => ({ path, nonce: (prev?.nonce ?? 0) + 1 }));
+    setActiveTab("files");
+  }, []);
   const m = payload.metadata;
   const stats = payload.stats;
 
@@ -94,7 +101,7 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
         {refreshError ? <p className="text-sm text-[var(--danger)]">{refreshError}</p> : null}
       </header>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab} defaultValue="overview">
         <div className="overflow-x-auto">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -113,7 +120,15 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
           <ArchitectureTab payload={payload} />
         </TabsContent>
         <TabsContent value="files">
-          <FilesTab owner={owner} repo={repo} branch={repository.branch} payload={payload} ingestedPaths={ingestedPaths} />
+          <FilesTab
+            key={fileRequest?.nonce ?? 0}
+            owner={owner}
+            repo={repo}
+            branch={repository.branch}
+            payload={payload}
+            ingestedPaths={ingestedPaths}
+            initialSelectedPath={fileRequest?.path ?? null}
+          />
         </TabsContent>
         <TabsContent value="prompt">
           <PromptTab
@@ -125,10 +140,10 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
           />
         </TabsContent>
         <TabsContent value="chat">
-          <ChatTab owner={owner} repo={repo} branch={repository.branch} />
+          <ChatTab owner={owner} repo={repo} branch={repository.branch} onOpenFile={openFileInFilesTab} />
         </TabsContent>
         <TabsContent value="learn">
-          <LearnTab payload={payload} />
+          <LearnTab payload={payload} onOpenFile={openFileInFilesTab} />
         </TabsContent>
       </Tabs>
     </main>

@@ -174,6 +174,16 @@ export interface LearningLevel {
   files: string[];
 }
 
+/**
+ * Canonical learning-step shape used by the Learn tab — derived from the
+ * analysis payload's `learningPath` (no separate AI call or schema).
+ */
+export interface LearningStep {
+  title: string;
+  description: string;
+  files: string[];
+}
+
 export interface RepositoryChunk {
   id: string;
   fileId: string | null;
@@ -195,11 +205,17 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-export interface FileReference {
+/**
+ * Canonical file reference used by chat responses (and reusable by any
+ * feature that cites files). Path-only for the MVP; line ranges can be
+ * added later without changing call sites.
+ */
+export interface ChatReference {
   path: string;
-  snippet?: string;
-  line?: number;
 }
+
+/** Back-compat alias — new code should use ChatReference. */
+export type FileReference = ChatReference;
 
 export interface ChatSessionSummary {
   sessionKey: string;

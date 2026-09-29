@@ -1,6 +1,10 @@
 /**
- * AI provider contracts. Implementations live in their own modules
- * (e.g. groq.ts) and are exposed through getAIProvider().
+ * Canonical AI provider contract. Implementations live in providers/
+ * (groq.ts, openrouter.ts) and are composed by manager.ts.
+ *
+ * Features (analyze / chat / explain) call `ai.<operation>(...)` — never a
+ * concrete provider directly — so the manager can resolve BYOK vs.
+ * RepoTutor-owned keys, pick models, and apply fallback uniformly.
  */
 
 /** Which model tier to use for a request. */
@@ -19,7 +23,7 @@ export interface GenerateTextOptions {
   /** Optional system instruction. */
   system?: string;
   temperature?: number;
-  /** Requested completion budget; the provider caps it to the free-tier envelope. */
+  /** Requested completion budget; the provider caps it to its own envelope. */
   maxOutputTokens?: number;
   /** Ask the provider for JSON output; callers still validate loosely. */
   json?: boolean;
@@ -31,8 +35,20 @@ export interface GenerateTextOptions {
   model?: ModelKind;
 }
 
+/**
+ * BYOK credentials supplied by the browser for a single request.
+ * Kept in memory on the client, used in-memory on the server, never persisted,
+ * never logged, never echoed back in responses or errors.
+ */
+export interface ProviderCredentials {
+  provider: "groq" | "openrouter";
+  apiKey: string;
+}
+
 export interface AIProvider {
-  readonly name: string;
+  readonly name: "groq" | "openrouter";
+  /** Tests a key cheaply; used by the BYOK "Test key" action. */
+  verifyKey(): Promise<boolean>;
   generateText(prompt: string, options?: GenerateTextOptions): Promise<string>;
   generateStructured<T>(prompt: string, schemaName: string, options?: GenerateTextOptions): Promise<T>;
   streamText(prompt: string, options?: GenerateTextOptions): AsyncIterable<string>;

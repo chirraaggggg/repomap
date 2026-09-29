@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 type Theme = "light" | "dark";
 
-const THEME_EVENT = "repomap:theme-change";
+const THEME_EVENT = "repotutor:theme-change";
 
 function subscribe(onChange: () => void): () => void {
   window.addEventListener(THEME_EVENT, onChange);

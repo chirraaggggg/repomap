@@ -4,7 +4,9 @@ import { runAnalysis } from "@/lib/ai/analyze";
 import { generateAllPromptModes } from "@/lib/ai/master-prompt";
 import { saveAnalysis } from "@/lib/database/store";
 import { chunkFiles, toRepositoryChunks } from "@/lib/embeddings/chunker";
-import { getClientKey, rateLimit } from "@/lib/security/rate-limit";
+import { getClientKey } from "@/lib/security/rate-limit";
+import { aiRateLimit } from "@/lib/security/limits";
+import { parseByokCredentials } from "@/lib/security/credentials";
 import { toErrorResponse } from "@/lib/errors";
 import type { RepositoryChunk } from "@/types";
 
@@ -16,17 +18,24 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ owner: string; repo: string }> },
 ) {
-  const rl = rateLimit(getClientKey(request, "refresh"), 3, 5 * 60_000);
+  let raw: unknown = {};
+  try {
+    raw = await request.json();
+  } catch {
+    raw = {};
+  }
+  const credentials = parseByokCredentials(raw);
+  const rl = aiRateLimit("refresh", getClientKey(request, "refresh"), Boolean(credentials));
   if (!rl.ok) {
-    return Response.json({ error: { code: "RATE_LIMIT", message: "Too many refreshes. Wait a few minutes." } }, { status: 429 });
+    return Response.json({ error: { code: "RATE_LIMIT", message: "Too many refreshes. Please wait a moment." } }, { status: 429 });
   }
 
   try {
     const { owner, repo } = await params;
-    const body = (await request.json().catch(() => ({}))) as { branch?: string };
+    const body = (raw ?? {}) as { branch?: string };
 
     const ingestion = await runIngestion(owner, repo, body.branch, { onStep: () => {} });
-    const analysis = await runAnalysis(ingestion);
+    const analysis = await runAnalysis(ingestion, credentials);
     const prompts = generateAllPromptModes(ingestion, analysis);
 
     let chunks: RepositoryChunk[] = [];

@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Download, ExternalLink, GitBranch, Loader2, RefreshCw, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { refreshAnalysis } from "@/lib/api-client";
+import { useByokFields } from "@/lib/api-client";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BrandLink } from "@/components/logo";
+import { AISettingsDialog } from "@/components/ai/ai-settings-gate";
 import { formatBytes, formatNumber } from "@/lib/utils";
 import type { AnalysisPayload, RepositoryRecord } from "@/types";
 import { OverviewTab } from "./tabs/overview-tab";
@@ -41,11 +43,13 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
   const m = payload.metadata;
   const stats = payload.stats;
 
+  const byok = useByokFields();
+
   const handleRefresh = async () => {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      await refreshAnalysis(owner, repo, repository.branch);
+      await refreshAnalysis(owner, repo, repository.branch, byok);
       router.refresh();
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : "Refresh failed");
@@ -60,7 +64,7 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Link href="/" className="font-mono text-sm text-[var(--text-secondary)] hover:text-[var(--text)]">RepoMap</Link>
+              <BrandLink />
               <span className="text-[var(--text-muted)]">/</span>
               <h1 className="truncate font-mono text-lg font-semibold">
                 {m.owner}/<span className="text-accent">{m.name}</span>
@@ -84,6 +88,7 @@ export function AnalysisView({ owner, repo, repository, payload, masterPrompt, i
               {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Refresh
             </Button>
+            <AISettingsDialog />
             <ThemeToggle />
           </div>
         </div>

@@ -5,7 +5,7 @@ import { estimateTokens, fitWithinBudget } from "@/lib/ingestion/tokenizer";
 import { renderAsciiTree, collectDirectories } from "@/lib/github/ascii-tree";
 import { detectLanguage } from "@/lib/ingestion/languages";
 import { detectTechStack } from "@/lib/ai/tech-stack";
-import { parseJsonLoose } from "@/lib/ai/groq";
+import { parseJsonLoose } from "@/lib/ai/providers/groq";
 import { sanitizeAnalysis } from "@/lib/ai/analyze";
 import { validateRepoInput } from "@/lib/security/validate";
 import { rateLimit } from "@/lib/security/rate-limit";

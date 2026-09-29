@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, SendHorizonal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { askChat } from "@/lib/api-client";
+import { askChat, useByokFields } from "@/lib/api-client";
 import { loadAnalysisFromSessionStorage } from "@/lib/analysis-storage";
 import type { ChatReference } from "@/types";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,14 @@ export function ChatTab({
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const historyRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const byok = useByokFields();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the newest message in view as streaming content grows the pane.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   const send = useCallback(
     async (question: string) => {
@@ -57,9 +65,18 @@ export function ChatTab({
           path: f.path,
           content: f.content,
         }));
-        const { text, references } = await askChat(owner, repo, q, historyRef.current, branch, localFiles);
-        // Server streams the answer; we reveal it on completion (token-level
-        // streaming is on the roadmap — see README).
+        const { text, references } = await askChat(owner, repo, q, historyRef.current, branch, localFiles, (delta, fullSoFar) => {
+          // Server streams token-level deltas; append them as they arrive so
+          // the answer renders progressively instead of all at once.
+          void delta;
+          setMessages((prev) => {
+            const copy = [...prev];
+            const target = copy.length - 1;
+            const last = copy[target];
+            if (last && last.role === "assistant") copy[target] = { role: "assistant", content: fullSoFar, references: [] };
+            return copy;
+          });
+        }, byok);
         const full = await text;
         const refs = references();
         setMessages((prev) => {
@@ -84,12 +101,12 @@ export function ChatTab({
         setStreaming(false);
       }
     },
-    [owner, repo, branch, streaming],
+    [owner, repo, branch, streaming, byok],
   );
 
   return (
     <div className="flex flex-col rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-      <div className="flex-1 space-y-4 overflow-y-auto p-4" style={{ minHeight: "45vh", maxHeight: "65vh" }}>
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4" style={{ minHeight: "45vh", maxHeight: "65vh" }}>
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
             <p className="text-lg font-medium">Ask anything about this repository.</p>

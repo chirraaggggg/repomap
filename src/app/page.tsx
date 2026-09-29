@@ -1,33 +1,32 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { BrainCircuit, FileCode2, GitBranch, Layers, MessageSquareCode, ScanSearch } from "lucide-react";
+import { BrainCircuit, FileCode2, KeyRound, Layers, MessageSquareCode, ScanSearch } from "lucide-react";
 import { AnalyzeForm } from "@/components/analyze-form";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BrandLink } from "@/components/logo";
+import { AISettingsDialog } from "@/components/ai/ai-settings-gate";
 
 export const metadata: Metadata = {
-  title: "Repomap — Understand any GitHub codebase",
+  title: "RepoTutor — Understand Any GitHub Codebase",
   description:
-    "Paste a GitHub repository and turn it into structured AI-ready context you can understand, explore, and chat with.",
+    "Turn any public GitHub repository into an interactive guide. Explore architecture, understand files, trace code flows, and chat with the codebase.",
 };
 
 const FEATURES = [
   { icon: ScanSearch, title: "Repository analysis", body: "Metadata, file tree, statistics, and tech stack from real evidence." },
-  { icon: BrainCircuit, title: "AI-ready prompts", body: "Copy a clean master prompt for ChatGPT, Claude, Gemini, or Cursor." },
   { icon: Layers, title: "Architecture understanding", body: "How the pieces fit, derived from actual code and file structure." },
+  { icon: FileCode2, title: "File exploration", body: "Browse the real repository tree, open files, and get per-file explanations." },
   { icon: MessageSquareCode, title: "Codebase chat", body: "Ask questions and get answers that cite real file paths." },
-  { icon: FileCode2, title: "Important files", body: "Where to start reading, and why each file matters." },
-  { icon: GitBranch, title: "No setup required", body: "Public repositories work immediately — paste a URL and go." },
+  { icon: BrainCircuit, title: "Learning path", body: "A leveled reading plan generated from the analyzed repository." },
+  { icon: KeyRound, title: "Bring your own key", body: "Optional: use your Groq or OpenRouter key. Session-only, never stored." },
 ];
 
 export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6">
       <header className="flex items-center justify-between py-6">
-        <Link href="/" className="flex items-center gap-2 font-mono text-sm font-semibold">
-          <span className="flex h-6 w-6 items-center justify-center rounded bg-accent text-xs font-bold text-white">R</span>
-          RepoMap
-        </Link>
+        <BrandLink />
         <nav aria-label="Main" className="flex items-center gap-3">
+          <AISettingsDialog />
           <ThemeToggle />
         </nav>
       </header>
@@ -37,7 +36,8 @@ export default function HomePage() {
           Understand any GitHub codebase.
         </h1>
         <p className="mt-5 max-w-2xl text-pretty text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
-          Paste a GitHub repository and turn it into structured AI-ready context you can understand, explore, and chat with.
+          Turn any public GitHub repository into an interactive guide. Explore architecture, understand files, trace code
+          flows, and chat with the codebase.
         </p>
 
         <div className="mt-10 flex w-full justify-center">
@@ -72,7 +72,7 @@ export default function HomePage() {
       </section>
 
       <footer className="flex items-center justify-between border-t border-[var(--border)] py-6 text-xs text-[var(--text-muted)]">
-        <span>RepoMap — analyze any public GitHub repository</span>
+        <span>RepoTutor — understand any public GitHub repository</span>
         <span className="font-mono">paste → analyze → understand</span>
       </footer>
     </main>

@@ -2,6 +2,20 @@
  * Typed client-side API helpers.
  */
 import type { AnalysisPayload, ChatReference, RepositoryRecord } from "@/types";
+import { useAISettings } from "@/components/ai/ai-settings-context";
+import { getByokFields } from "@/lib/byok";
+
+/**
+ * Hook: builds the BYOK request fields from the session-only settings context.
+ * The key travels in the HTTPS request body only — never a URL, never storage.
+ */
+export function useByokFields(): { aiProvider?: string; aiApiKey?: string } {
+  const { settings, isByok } = useAISettings();
+  if (!isByok || (settings.provider !== "groq" && settings.provider !== "openrouter") || !settings.apiKey) {
+    return {};
+  }
+  return { aiProvider: settings.provider, aiApiKey: settings.apiKey };
+}
 
 export interface ApiErrorBody {
   error?: { code?: string; message?: string };
@@ -44,14 +58,17 @@ export interface AnalyzeHandlers {
 }
 
 /** Consumes the SSE stream from /api/analyze. */
-export function analyzeRepository(url: string, handlers: AnalyzeHandlers): AbortController {
+export function analyzeRepository(url: string, handlers: AnalyzeHandlers, byok?: { aiProvider?: string; aiApiKey?: string }): AbortController {
   const controller = new AbortController();
   void (async () => {
     try {
+      // BYOK fields come from the session-only supplier (set by AISettingsGate);
+      // the optional argument is honored when a caller passes credentials directly.
+      const fields = byok ?? getByokFields();
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, ...fields }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -89,13 +106,6 @@ export function analyzeRepository(url: string, handlers: AnalyzeHandlers): Abort
               handlers.onError("Analysis finished but the result payload was missing. Please try again.");
               return;
             }
-            console.log("[RepoMap] analysis response received", {
-              hasPayload: true,
-              owner: data.repository.owner,
-              repo: data.repository.name,
-              branch: data.repository.branch,
-              files: data.files?.length ?? 0,
-            });
             handlers.onDone({
               url: data.url,
               repository: data.repository,
@@ -133,11 +143,12 @@ export async function explainFile(
   path: string,
   action: "explain" | "references" = "explain",
   branch?: string,
+  byok?: { aiProvider?: string; aiApiKey?: string },
 ): Promise<{ explanation: string }> {
   const res = await fetch(`/api/repository/${owner}/${repo}/explain`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, action, branch }),
+    body: JSON.stringify({ path, action, branch, ...byok }),
   });
   if (!res.ok) await parseError(res);
   return res.json();
@@ -167,11 +178,13 @@ export async function askChat(
   history: Array<{ role: "user" | "assistant"; content: string }>,
   branch?: string,
   localFiles: Array<{ path: string; content: string }> = [],
+  onDelta?: (delta: string, fullSoFar: string) => void,
+  byok?: { aiProvider?: string; aiApiKey?: string },
 ): Promise<{ text: Promise<string>; references: () => ChatReference[] }> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ owner, repo, question, history, branch, localFiles }),
+    body: JSON.stringify({ owner, repo, question, history, branch, localFiles, ...byok }),
   });
   if (!res.ok || !res.body) await parseError(res);
 
@@ -191,7 +204,9 @@ export async function askChat(
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        full += decoder.decode(value, { stream: true });
+        const delta = decoder.decode(value, { stream: true });
+        full += delta;
+        onDelta?.(delta, full);
       }
       resolve(full);
     })();
@@ -199,11 +214,16 @@ export async function askChat(
   return { text, references: () => references };
 }
 
-export async function refreshAnalysis(owner: string, repo: string, branch?: string): Promise<void> {
+export async function refreshAnalysis(
+  owner: string,
+  repo: string,
+  branch?: string,
+  byok?: { aiProvider?: string; aiApiKey?: string },
+): Promise<void> {
   const res = await fetch(`/api/repository/${owner}/${repo}/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ branch }),
+    body: JSON.stringify({ branch, ...byok }),
   });
   if (!res.ok) await parseError(res);
 }

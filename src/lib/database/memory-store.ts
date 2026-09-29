@@ -1,5 +1,5 @@
 /**
- * Process-level in-memory store. RepoMap MVP runs without a database:
+ * Process-level in-memory store. RepoTutor MVP runs without a database:
  * data survives per server instance; documented as ephemeral.
  */
 import type {
@@ -31,10 +31,10 @@ interface MemoryEntry {
  * one shared instance per server process.
  */
 const globalStore = globalThis as typeof globalThis & {
-  __repomapStore?: Map<string, MemoryEntry>;
+  __repotutorStore?: Map<string, MemoryEntry>;
 };
-const store: Map<string, MemoryEntry> = globalStore.__repomapStore ?? new Map();
-globalStore.__repomapStore = store;
+const store: Map<string, MemoryEntry> = globalStore.__repotutorStore ?? new Map();
+globalStore.__repotutorStore = store;
 
 function repoKey(owner: string, name: string, branch: string): string {
   return `${owner.toLowerCase()}/${name.toLowerCase()}@${branch}`;

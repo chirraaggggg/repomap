@@ -1,19 +1,21 @@
 /**
  * Executes AI analysis over the ingested repository context.
- * Uses Groq strict structured output (json_schema), then validates.
+ * Uses strict structured output (json_schema) via the AI manager, then
+ * validates. Accepts optional BYOK credentials for the request.
  */
 import { AnalysisResultSchema, type AnalysisResultSchema as AnalysisResult } from "./analysis-schema";
 import { ANALYSIS_JSON_SCHEMA } from "./analysis-json-schema";
 import { ANALYSIS_SYSTEM_PROMPT, buildAnalysisPrompt } from "./analysis-prompt";
-import { parseJsonLoose } from "./groq";
-import { getAIProvider } from "./provider";
+import { getAI } from "./manager";
+import { parseJsonLoose } from "./providers/groq";
+import type { ProviderCredentials } from "./types";
 import { AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import type { IngestionResult } from "@/types";
 import { z } from "zod";
 
-export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisResult> {
-  const provider = getAIProvider();
+export async function runAnalysis(ingestion: IngestionResult, credentials?: ProviderCredentials): Promise<AnalysisResult> {
+  const model = getAI(credentials);
   const prompt = buildAnalysisPrompt({
     metadata: ingestion.metadata,
     stats: ingestion.stats,
@@ -23,13 +25,13 @@ export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisR
 
   logger.info(
     "ai.analyze",
-    `Analyzing ${ingestion.metadata.fullName}: selectedFiles=${ingestion.ingestedFiles.length} contextTokens=${ingestion.contextTokens} completionRequest=6000 effort=low`,
+    `Analyzing ${ingestion.metadata.fullName}: selectedFiles=${ingestion.ingestedFiles.length} contextTokens=${ingestion.contextTokens} completionRequest=6000 effort=low byok=${Boolean(credentials)}`,
   );
 
   // Strict structured output: the model must emit JSON matching the schema.
   // Completion budget is re-capped inside the provider so that input + output
-  // always fits the free-tier per-request envelope.
-  const raw = await provider.generateText(prompt, {
+  // always fits the per-request envelope.
+  const raw = await model.generateText(prompt, {
     system: ANALYSIS_SYSTEM_PROMPT,
     temperature: 0.2,
     maxOutputTokens: 6_000,
@@ -42,7 +44,7 @@ export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisR
     parsed = parseJsonLoose(raw);
   } catch (err) {
     logger.error("ai.analyze", "Failed to parse AI JSON", err instanceof Error ? err.message : err);
-    throw new AppError("AI_ERROR", "AI analysis returned malformed JSON. Please retry.");
+    throw new AppError("AI_INVALID_RESPONSE", "The AI returned an invalid response. Please try again.");
   }
 
   const parsedKeys = typeof parsed === "object" && parsed !== null ? Object.keys(parsed).length : 0;
@@ -59,7 +61,7 @@ export async function runAnalysis(ingestion: IngestionResult): Promise<AnalysisR
       .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
       .join("; ");
     logger.error("ai.analyze", `Schema validation failed with ${validated.error.issues.length} issue(s): ${summary}`);
-    throw new AppError("AI_ERROR", "AI analysis returned an unexpected structure. Please try again.");
+    throw new AppError("AI_INVALID_RESPONSE", "The AI returned an invalid response. Please try again.");
   }
   logger.info("ai.analyze", "Schema validation OK");
   return validated.data;

@@ -5,7 +5,9 @@ import { generateAllPromptModes } from "@/lib/ai/master-prompt";
 import { saveAnalysis } from "@/lib/database/store";
 import { chunkFiles, toRepositoryChunks } from "@/lib/embeddings/chunker";
 import { validateRepoInput } from "@/lib/security/validate";
-import { getClientKey, rateLimit } from "@/lib/security/rate-limit";
+import { getClientKey } from "@/lib/security/rate-limit";
+import { aiRateLimit } from "@/lib/security/limits";
+import { parseByokCredentials } from "@/lib/security/credentials";
 import { toErrorResponse, AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import type { AnalysisPayload, RepositoryChunk } from "@/types";
@@ -14,18 +16,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-const ANALYZE_LIMIT = 5;      // per window per IP
-const WINDOW_MS = 5 * 60_000;
-
 export async function POST(request: NextRequest) {
-  const rl = rateLimit(getClientKey(request, "analyze"), ANALYZE_LIMIT, WINDOW_MS);
-  if (!rl.ok) {
-    return Response.json(
-      { error: { code: "RATE_LIMIT", message: "Too many analyses. Please wait a few minutes." } },
-      { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } },
-    );
-  }
-
   let body: unknown;
   try {
     body = await request.json();
@@ -33,6 +24,18 @@ export async function POST(request: NextRequest) {
     return Response.json(
       { error: { code: "BAD_REQUEST", message: "Enter a valid GitHub repository URL." } },
       { status: 400 },
+    );
+  }
+
+  // BYOK credentials (if any) are extracted first and stripped from the body.
+  const credentials = parseByokCredentials(body);
+  const byok = Boolean(credentials);
+
+  const rl = aiRateLimit("analyze", getClientKey(request, "analyze"), byok);
+  if (!rl.ok) {
+    return Response.json(
+      { error: { code: "RATE_LIMIT", message: "Too many analyses. Please wait before trying again." } },
+      { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } },
     );
   }
 
@@ -71,7 +74,7 @@ export async function POST(request: NextRequest) {
 
       try {
         send("progress", { id: "ai", label: "Generating project understanding…", status: "active" });
-        const analysis = await runAnalysis(ingestion);
+        const analysis = await runAnalysis(ingestion, credentials);
         send("progress", { id: "ai", label: "Generating project understanding…", status: "done", detail: "✓ Analysis complete" });
 
         // Chunk best-effort: chat retrieval works from these chunks.

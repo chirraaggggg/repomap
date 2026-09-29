@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, Loader
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/code-block";
-import { fetchFileContent, explainFile } from "@/lib/api-client";
+import { fetchFileContent, explainFile, useByokFields } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { AnalysisPayload, TreeEntry } from "@/types";
 
@@ -59,6 +59,34 @@ function buildTree(entries: TreeEntry[]): TreeNode {
   };
   sort(root);
   return root;
+}
+
+/**
+ * Renders the tree's children (root-level dirs and files). The synthetic root
+ * node itself is not rendered — it has no name and would show as a lone "/".
+ */
+function TreeRows({
+  node,
+  depth,
+  selected,
+  onSelect,
+  expanded,
+  toggle,
+}: {
+  node: TreeNode;
+  depth: number;
+  selected: string | null;
+  onSelect: (path: string) => void;
+  expanded: Set<string>;
+  toggle: (path: string) => void;
+}) {
+  return (
+    <>
+      {node.children.map((child) => (
+        <TreeRow key={child.path} node={child} depth={depth} selected={selected} onSelect={onSelect} expanded={expanded} toggle={toggle} />
+      ))}
+    </>
+  );
 }
 
 function TreeRow({
@@ -162,6 +190,8 @@ export function FilesTab({ owner, repo, branch, payload, ingestedPaths, initialS
   // fall back to the first important file.
   const defaultSelection = initialSelectedPath ?? payload.importantFiles[0]?.path ?? null;
 
+  // Initial expansion derived from the actual tree: open the anchor file's
+  // directories, or the top-level directories when nothing is anchored.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     const anchor = defaultSelection ?? payload.importantFiles[0]?.path;
@@ -169,13 +199,21 @@ export function FilesTab({ owner, repo, branch, payload, ingestedPaths, initialS
       const parts = anchor.split("/");
       for (let i = 1; i < parts.length; i++) initial.add(parts.slice(0, i).join("/"));
     }
-    if (initial.size === 0) initial.add("src");
+    if (initial.size === 0) {
+      // No anchor: open top-level directories that actually exist in the tree.
+      for (const e of entries) {
+        const top = e.path.split("/")[0];
+        if (top && e.path.includes("/")) initial.add(top);
+      }
+      // Root-level files only repo: nothing to pre-expand.
+    }
     return initial;
   });
 
   const [selected, setSelected] = useState<string | null>(defaultSelection);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [explaining, setExplaining] = useState(false);
+  const byok = useByokFields();
 
   const toggle = useCallback((path: string) => {
     setExpanded((prev) => {
@@ -197,7 +235,7 @@ export function FilesTab({ owner, repo, branch, payload, ingestedPaths, initialS
     setExplaining(true);
     setExplanation(null);
     try {
-      const res = await explainFile(owner, repo, selected, action, branch);
+      const res = await explainFile(owner, repo, selected, action, branch, byok);
       setExplanation(res.explanation);
     } catch (err) {
       setExplanation(`Failed: ${err instanceof Error ? err.message : "request failed"}`);
@@ -212,7 +250,7 @@ export function FilesTab({ owner, repo, branch, payload, ingestedPaths, initialS
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
       <aside aria-label="Repository tree" className="max-h-[70vh] overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2">
         {entries.length > 0 ? (
-          <TreeRow node={tree} depth={0} selected={selected} onSelect={select} expanded={expanded} toggle={toggle} />
+          <TreeRows node={tree} depth={0} selected={selected} onSelect={select} expanded={expanded} toggle={toggle} />
         ) : (
           <p className="p-2 text-xs text-[var(--text-muted)]">Tree unavailable for this analysis.</p>
         )}

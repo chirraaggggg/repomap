@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    RepoTutor mark: a stylized "R" built from code-bracket geometry and a
+    repository-branch path. Reads at 16px, works on dark/light backgrounds.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0a0a0a"/>
+  <path d="M9 8v16" stroke="#e7e9ea" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M9 9h7a4.5 4.5 0 0 1 0 9H9" fill="none" stroke="#e7e9ea" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 18l7 6" fill="none" stroke="#e7e9ea" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="22" cy="10" r="2.4" fill="#3b82f6"/>
+</svg>

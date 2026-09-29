@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, CheckCircle2, GitFork, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { analyzeRepository, validateRepoUrl } from "@/lib/api-client";
+import { analyzeRepository, validateRepoUrl, useByokFields } from "@/lib/api-client";
 import { buildChatFiles, saveAnalysisToSessionStorage } from "@/lib/analysis-storage";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,7 @@ const INITIAL_STEPS: Step[] = [
 
 export function AnalyzeForm() {
   const router = useRouter();
+  const byok = useByokFields();
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -94,9 +95,9 @@ export function AnalyzeForm() {
           });
           router.push(result.url);
         },
-      });
+      }, byok);
     },
-    [url, router, upsert],
+    [url, router, upsert, byok],
   );
 
   return (

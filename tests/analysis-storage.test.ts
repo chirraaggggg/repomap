@@ -126,10 +126,10 @@ afterEach(() => {
 describe("analysis-storage keys", () => {
   it("builds deterministic, repository-specific keys", () => {
     expect(analysisStorageKey("Owner", "Repo", "main")).toBe(
-      "repomap:analysis:owner/repo:main",
+      "repotutor:analysis:owner/repo:main",
     );
     expect(analysisStorageKey("owner", "repo")).toBe(
-      "repomap:analysis:owner/repo:default",
+      "repotutor:analysis:owner/repo:default",
     );
   });
 

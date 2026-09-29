@@ -1,5 +1,5 @@
 /**
- * Persistence facade. RepoMap MVP has no database: everything lives in the
+ * Persistence facade. RepoTutor MVP has no database: everything lives in the
  * process-level in-memory store (data is ephemeral per server instance).
  */
 import * as memory from "./memory-store";

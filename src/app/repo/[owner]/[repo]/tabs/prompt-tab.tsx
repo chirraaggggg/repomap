@@ -48,6 +48,8 @@ export function PromptTab({ owner, repo, branch, masterPrompt, treeEntries, anal
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branch }),
       });
+      // NOTE: prompt regeneration goes through /refresh which supports BYOK;
+      // the plain fetch here intentionally omits it (no AI without refresh).
       if (res.ok) {
         const data = (await res.json()) as { masterPrompt?: string };
         if (data.masterPrompt) {

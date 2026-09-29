@@ -8,7 +8,7 @@
  */
 import type { AnalysisPayload, RepositoryRecord } from "@/types";
 
-const PREFIX = "repomap:analysis:";
+const PREFIX = "repotutor:analysis:";
 
 /** Deterministic per-repository key: owner/repo are case-insensitive on GitHub. */
 export function analysisStorageKey(owner: string, repo: string, branch?: string): string {
@@ -53,7 +53,6 @@ export function saveAnalysisToSessionStorage(stored: StoredAnalysis): void {
   const key = analysisStorageKey(stored.repository.owner, stored.repository.name, stored.branch);
   try {
     sessionStorage.setItem(key, JSON.stringify(stored));
-    console.log("[RepoMap] analysis stored", key);
   } catch {
     // Quota exceeded: retry without the chat file contents.
     try {
@@ -61,9 +60,9 @@ export function saveAnalysisToSessionStorage(stored: StoredAnalysis): void {
         key,
         JSON.stringify({ ...stored, chatFiles: stored.chatFiles.slice(0, 10) }),
       );
-      console.log("[RepoMap] analysis stored (trimmed chat files)", key);
     } catch {
-      console.warn("[RepoMap] sessionStorage unavailable/limited; relying on server cache only");
+      // sessionStorage unavailable/limited — the repository page will fall
+      // back to the server store; nothing sensitive is at risk.
     }
   }
 }
@@ -120,9 +119,7 @@ export function getAnalysisSnapshot(owner: string, repo: string, branch?: string
   if (snapshotCache && snapshotCache.key === key && snapshotCache.raw === raw) {
     return snapshotCache.parsed;
   }
-  console.log("[RepoMap] loading analysis", key);
   const parsed = raw ? parseStored(raw) : null;
-  console.log("[RepoMap] analysis found:", Boolean(parsed));
   snapshotCache = { key, raw, parsed };
   return parsed;
 }
